@@ -1,0 +1,38 @@
+# Grafana with the Prometheus datasource pre-provisioned.
+#   kubectl -n heart-mlops port-forward svc/grafana 3000:3000   (admin/admin)
+#   Import monitoring/grafana/dashboards/heart-api.json
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: grafana-datasources, namespace: heart-mlops}
+data:
+  prometheus.yml: |
+    apiVersion: 1
+    datasources:
+      - {name: Prometheus, uid: prometheus, type: prometheus, access: proxy,
+         url: "http://prometheus:9090", isDefault: true}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: grafana, namespace: heart-mlops}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: grafana}}
+  template:
+    metadata: {labels: {app: grafana}}
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.3.0
+          env: [{name: GF_SECURITY_ADMIN_PASSWORD, value: admin}]
+          ports: [{containerPort: 3000}]
+          volumeMounts:
+            - {name: ds, mountPath: /etc/grafana/provisioning/datasources}
+      volumes:
+        - {name: ds, configMap: {name: grafana-datasources}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: grafana, namespace: heart-mlops}
+spec:
+  selector: {app: grafana}
+  ports: [{port: 3000, targetPort: 3000}]

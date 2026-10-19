@@ -1,0 +1,53 @@
+{
+  "model_name": "heart-disease-classifier",
+  "model_version": "6",
+  "algorithm": "logistic_regression",
+  "best_params": {
+    "C": 0.3,
+    "class_weight": "balanced",
+    "penalty": "l2"
+  },
+  "selection_rule": "highest mean 5-fold CV ROC-AUC on the training split",
+  "cv_metrics": {
+    "cv_accuracy_mean": 0.8551870748299321,
+    "cv_accuracy_std": 0.02704643119731138,
+    "cv_precision_mean": 0.8818976789800589,
+    "cv_precision_std": 0.07018786751261416,
+    "cv_recall_mean": 0.8007905138339921,
+    "cv_recall_std": 0.07503013293757824,
+    "cv_f1_mean": 0.8341810854191829,
+    "cv_f1_std": 0.032497545867502954,
+    "cv_roc_auc_mean": 0.9074935531457269,
+    "cv_roc_auc_std": 0.019275339510035346
+  },
+  "test_metrics": {
+    "test_accuracy": 0.8688524590163934,
+    "test_precision": 0.8125,
+    "test_recall": 0.9285714285714286,
+    "test_f1": 0.8666666666666667,
+    "test_roc_auc": 0.9610389610389611
+  },
+  "decision_threshold": 0.5,
+  "features": [
+    "age",
+    "trestbps",
+    "chol",
+    "thalach",
+    "oldpeak",
+    "ca",
+    "sex",
+    "fbs",
+    "exang",
+    "cp",
+    "restecg",
+    "slope",
+    "thal"
+  ],
+  "trained_at": "2026-10-19T13:39:07+00:00",
+  "mlflow_run_id": "5b8ce141fc244b15927f2ed5b5df5d3e",
+  "git_commit": "9b57905",
+  "data_sha256": "5c7c44684acb4e5673cd0c362074c3f1c9d315270c8ab003e16f6110769b7dee",
+  "sklearn_version": "1.6.1",
+  "onnx_exported": true,
+  "quick_mode": false
+}

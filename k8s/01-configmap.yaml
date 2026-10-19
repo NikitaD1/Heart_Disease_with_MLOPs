@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: heart-api-config
+  namespace: heart-mlops
+data:
+  LOG_LEVEL: "INFO"
+  MODEL_PATH: "/app/models/heart_model.joblib"
+  MODEL_META_PATH: "/app/models/model_metadata.json"

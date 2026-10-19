@@ -1,0 +1,27 @@
+# Full environment: data download, EDA, training, experiment tracking, serving,
+# tests, linting and notebooks. Tested on Python 3.11 (CI) and 3.12.
+# Install:  pip install -r requirements.txt && pip install -e .
+
+# --- serving / runtime (same pins as requirements-serve.txt) ---
+-r requirements-serve.txt
+
+# --- data & visualisation ---
+requests==2.32.4
+matplotlib==3.10.3
+seaborn==0.13.2
+
+# --- experiment tracking & model formats ---
+mlflow==2.22.1
+sqlalchemy==2.0.41      # pinned: SQLAlchemy 2.1 breaks the MLflow 2.22 sqlite backend
+alembic==1.16.1
+skl2onnx==1.19.1
+onnxruntime==1.22.0
+
+# --- testing, linting, notebooks ---
+pytest==8.4.0
+pytest-cov==6.1.1
+httpx==0.28.1
+flake8==7.2.0
+nbconvert==7.16.6
+nbformat==5.10.4
+ipykernel==6.29.5

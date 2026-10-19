@@ -1,0 +1,29 @@
+groups:
+  - name: heart-api
+    rules:
+      - alert: HeartApiDown
+        expr: up{job="heart-api"} == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: "Heart API target is down"}
+      - alert: HeartApiHighErrorRate
+        expr: sum(rate(api_requests_total{status=~"5.."}[5m])) / sum(rate(api_requests_total[5m])) > 0.05
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "More than 5% of API requests fail"}
+      - alert: HeartApiSlow
+        expr: histogram_quantile(0.95, sum(rate(api_request_latency_seconds_bucket[5m])) by (le)) > 0.5
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "p95 latency above 500 ms"}
+      - alert: ModelNotLoaded
+        expr: model_loaded == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: "Model failed to load"}
+      - alert: PredictionDistributionShift
+        # share of positive predictions over 1h far from the ~46% training prevalence
+        expr: abs(sum(rate(model_predictions_total{label="heart disease"}[1h])) / sum(rate(model_predictions_total[1h])) - 0.46) > 0.25
+        for: 30m
+        labels: {severity: info}
+        annotations: {summary: "Prediction mix drifted - check input data drift"}

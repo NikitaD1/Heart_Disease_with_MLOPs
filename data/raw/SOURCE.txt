@@ -1,0 +1,3 @@
+source: https://archive.ics.uci.edu/static/public/45/heart+disease.zip
+rows: 303
+sha256: 953d45066c221ee00cf8de72cfa4ab2086eb4e231fef6dda8fc3051b17840e61

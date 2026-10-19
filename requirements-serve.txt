@@ -1,0 +1,9 @@
+# Minimal runtime dependencies for the model-serving container (see Dockerfile).
+numpy==2.2.6
+pandas==2.2.3
+scikit-learn==1.6.1
+joblib==1.5.1
+fastapi==0.115.12
+uvicorn[standard]==0.34.3
+pydantic==2.11.5
+prometheus-client==0.22.1

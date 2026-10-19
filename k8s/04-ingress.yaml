@@ -1,0 +1,21 @@
+# Optional: route through an Ingress controller instead of (or as well as) the LB.
+#   minikube addons enable ingress   |   or install ingress-nginx on any cluster
+# Then add "<ingress-ip> heart-api.local" to /etc/hosts and call http://heart-api.local/predict
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: heart-api
+  namespace: heart-mlops
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: heart-api.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: heart-api
+                port:
+                  name: http

@@ -1,0 +1,228 @@
+name: CI/CD - heart disease MLOps
+
+# Lint -> unit tests -> train (MLflow) -> build & smoke-test Docker image
+#      -> deploy to an ephemeral Kubernetes (kind) cluster and test the endpoint.
+# Any failing command fails its job and blocks every job that depends on it.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+  IMAGE_NAME: heart-disease-api
+  IMAGE_TAG: ${{ github.sha }}
+
+defaults:
+  run:
+    shell: bash -euo pipefail {0}
+
+jobs:
+  lint:
+    name: Lint (flake8)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install flake8
+        run: pip install flake8==7.2.0
+      - name: Run flake8
+        run: |
+          flake8 --format='::error file=%(path)s,line=%(row)d,col=%(col)d::%(code)s %(text)s' \
+            | tee flake8-report.txt
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: flake8-report.txt
+
+  test:
+    name: Unit tests (pytest)
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -e .
+      - name: Run tests with coverage
+        run: |
+          python -m pytest -v --junitxml=test-results/junit.xml \
+            --cov=src/heart --cov=app --cov-report=xml:test-results/coverage.xml \
+            --cov-report=html:test-results/htmlcov --cov-report=term-missing
+      - name: Publish test summary
+        if: always()
+        run: |
+          python - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import xml.etree.ElementTree as ET
+          r = ET.parse("test-results/junit.xml").getroot()
+          s = r if r.tag == "testsuite" else r[0]
+          print("### Unit tests")
+          print(f"tests: {s.get('tests')} | failures: {s.get('failures')} | "
+                f"errors: {s.get('errors')} | skipped: {s.get('skipped')} | time: {s.get('time')}s")
+          EOF
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results/
+
+  train:
+    name: Train & track (MLflow)
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -e .
+      - name: Download & clean data
+        run: python scripts/download_data.py
+      - name: EDA figures
+        run: python -m heart.eda
+      - name: Train models (GridSearchCV + MLflow)
+        run: python -m heart.train 2>&1 | tee training.log
+      - name: Quality gate (fail if champion is worse than threshold)
+        run: |
+          python - <<'EOF'
+          import json, sys
+          m = json.load(open("reports/metrics.json"))
+          auc = m["cv"]["cv_roc_auc_mean"]
+          print(f"champion={m['champion']} cv_roc_auc={auc:.3f} test_roc_auc={m['test']['test_roc_auc']:.3f}")
+          sys.exit(0 if auc >= 0.85 else f"CV ROC-AUC {auc:.3f} below gate 0.85")
+          EOF
+      - name: Training summary
+        run: |
+          {
+            echo "### Model comparison (5-fold CV on train split, held-out test)"
+            python scripts/export_mlflow_runs.py --markdown
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload model artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: model
+          path: |
+            models/
+            reports/
+            training.log
+      - name: Upload MLflow tracking store
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlflow-tracking
+          path: |
+            mlruns/
+            mlflow.db
+
+  docker:
+    name: Build & smoke-test container
+    needs: train
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get trained model
+        uses: actions/download-artifact@v4
+        with:
+          name: model
+          path: .
+      - name: Build image
+        run: docker build -t $IMAGE_NAME:$IMAGE_TAG -t $IMAGE_NAME:latest . 2>&1 | tee docker-build.log
+      - name: Run container
+        run: docker run -d --name api -p 8000:8000 $IMAGE_NAME:$IMAGE_TAG
+      - name: Smoke test
+        run: scripts/smoke_test.sh http://localhost:8000
+      - name: Container logs
+        if: always()
+        run: docker logs api > container.log 2>&1 || true
+      - name: Save image
+        run: docker save $IMAGE_NAME:$IMAGE_TAG | gzip > image.tar.gz
+      - name: Upload image and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: |
+            image.tar.gz
+            docker-build.log
+            container.log
+      - name: Push to GHCR (main branch only)
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          for t in $IMAGE_TAG latest; do
+            docker tag $IMAGE_NAME:$IMAGE_TAG ghcr.io/$OWNER/$IMAGE_NAME:$t
+            docker push ghcr.io/$OWNER/$IMAGE_NAME:$t
+          done
+
+  deploy-k8s:
+    name: Deploy to Kubernetes (kind) & verify
+    needs: docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get image
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+      - name: Load image
+        run: |
+          gunzip -c image.tar.gz | docker load
+          docker tag $IMAGE_NAME:$IMAGE_TAG $IMAGE_NAME:1.0.0
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: heart
+      - name: Lint Helm chart
+        run: |
+          helm lint helm/heart-api
+          helm template heart-api helm/heart-api > rendered-helm.yaml
+      - name: Deploy manifests
+        run: |
+          kind load docker-image $IMAGE_NAME:1.0.0 --name heart
+          kubectl apply -f k8s/00-namespace.yaml -f k8s/01-configmap.yaml \
+                        -f k8s/02-deployment.yaml -f k8s/03-service.yaml
+          kubectl -n heart-mlops rollout status deploy/heart-api --timeout=180s
+          kubectl -n heart-mlops get deploy,pods,svc -o wide | tee k8s-status.txt
+      - name: Verify endpoint through the Service
+        run: |
+          kubectl -n heart-mlops port-forward svc/heart-api 8080:80 > pf.log 2>&1 &
+          sleep 5
+          scripts/smoke_test.sh http://localhost:8080
+      - name: Debug info on failure
+        if: failure()
+        run: |
+          kubectl -n heart-mlops describe pods || true
+          kubectl -n heart-mlops logs -l app=heart-api --tail=100 || true
+      - name: Upload deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k8s-deployment
+          path: |
+            k8s-status.txt
+            rendered-helm.yaml

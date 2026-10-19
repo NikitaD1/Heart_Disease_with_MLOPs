@@ -1,0 +1,22 @@
+{
+  "champion": "logistic_regression",
+  "cv": {
+    "cv_accuracy_mean": 0.8551870748299321,
+    "cv_accuracy_std": 0.02704643119731138,
+    "cv_precision_mean": 0.8818976789800589,
+    "cv_precision_std": 0.07018786751261416,
+    "cv_recall_mean": 0.8007905138339921,
+    "cv_recall_std": 0.07503013293757824,
+    "cv_f1_mean": 0.8341810854191829,
+    "cv_f1_std": 0.032497545867502954,
+    "cv_roc_auc_mean": 0.9074935531457269,
+    "cv_roc_auc_std": 0.019275339510035346
+  },
+  "test": {
+    "test_accuracy": 0.8688524590163934,
+    "test_precision": 0.8125,
+    "test_recall": 0.9285714285714286,
+    "test_f1": 0.8666666666666667,
+    "test_roc_auc": 0.9610389610389611
+  }
+}

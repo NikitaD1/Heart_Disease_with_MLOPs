@@ -1,0 +1,33 @@
+replicaCount: 2
+
+image:
+  repository: heart-disease-api
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+service:
+  type: LoadBalancer      # NodePort / ClusterIP also work
+  port: 80
+
+ingress:
+  enabled: false
+  className: nginx
+  host: heart-api.local
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+
+env:
+  LOG_LEVEL: INFO
+
+resources:
+  requests: {cpu: 100m, memory: 256Mi}
+  limits: {cpu: 500m, memory: 512Mi}
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8000"
+  prometheus.io/path: "/metrics"

@@ -1,0 +1,3 @@
+Heart Disease API deployed as release {{ .Release.Name }}.
+  kubectl get svc {{ include "heart-api.name" . }} -n {{ .Release.Namespace }}
+Then: curl -X POST http://<EXTERNAL-IP>/predict -H 'content-type: application/json' -d @samples/patient.json

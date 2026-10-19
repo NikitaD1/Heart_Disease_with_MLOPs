@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heart API Monitor</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --ink: #1d2433; --muted: #6b7385; --line: #e3e6ec;
+    --accent: #2e7d9a; --warn: #d1495b; --ok: #2f9e6f; --amber: #d99a21;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+         background: var(--bg); color: var(--ink); }
+  header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+           padding: 20px 28px 8px; }
+  h1 { font-size: 20px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 99px;
+          background: #e8f5ee; color: var(--ok); font-size: 12px; font-weight: 600; }
+  .pill.bad { background: #fbe9eb; color: var(--warn); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  main { padding: 8px 28px 28px; display: grid; gap: 16px;
+         grid-template-columns: repeat(12, 1fr); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .tile { grid-column: span 2; }
+  .tile .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .tile .v { font-size: 26px; font-weight: 650; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .tile .h { color: var(--muted); font-size: 12px; }
+  .wide { grid-column: span 8; } .narrow { grid-column: span 4; } .full { grid-column: span 12; }
+  h2 { font-size: 13px; margin: 0 0 10px; font-weight: 600; color: var(--muted);
+       text-transform: uppercase; letter-spacing: .04em; }
+  svg { width: 100%; display: block; }
+  .bar-row { display: grid; grid-template-columns: 110px 1fr 48px; align-items: center; gap: 8px; margin: 6px 0; }
+  .bar-row .track { height: 10px; background: #eef0f4; border-radius: 6px; overflow: hidden; }
+  .bar-row .fill { height: 100%; background: var(--accent); border-radius: 6px; }
+  .bar-row .n { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  td.num { font-variant-numeric: tabular-nums; }
+  .s2 { color: var(--ok); font-weight: 600; } .s4 { color: var(--amber); font-weight: 600; }
+  .s5 { color: var(--warn); font-weight: 600; }
+  .legend { display: flex; gap: 14px; color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  @media (max-width: 900px) { .tile { grid-column: span 6; } .wide, .narrow { grid-column: span 12; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Heart Disease API · live monitor</h1>
+  <span id="status" class="pill"><span class="dot"></span>connecting</span>
+  <span class="sub" id="meta">–</span>
+</header>
+<main>
+  <div class="card tile"><div class="k">Requests</div><div class="v" id="t-req">–</div><div class="h">last 15 min</div></div>
+  <div class="card tile"><div class="k">Error rate</div><div class="v" id="t-err">–</div><div class="h">4xx + 5xx</div></div>
+  <div class="card tile"><div class="k">p50 latency</div><div class="v" id="t-p50">–</div><div class="h">milliseconds</div></div>
+  <div class="card tile"><div class="k">p95 latency</div><div class="v" id="t-p95">–</div><div class="h">milliseconds</div></div>
+  <div class="card tile"><div class="k">Predictions</div><div class="v" id="t-pred">–</div><div class="h" id="t-pos">–</div></div>
+  <div class="card tile"><div class="k">Mean P(disease)</div><div class="v" id="t-prob">–</div><div class="h">training prevalence 0.46</div></div>
+
+  <div class="card wide">
+    <h2>Requests per 30 s</h2>
+    <svg id="chart" viewBox="0 0 800 200" preserveAspectRatio="none" role="img" aria-label="request timeline"></svg>
+    <div class="legend"><span><span class="sw" style="background:var(--accent)"></span>successful</span>
+      <span><span class="sw" style="background:var(--warn)"></span>errors (4xx/5xx)</span></div>
+  </div>
+  <div class="card narrow">
+    <h2>By endpoint</h2><div id="paths"></div>
+    <h2 style="margin-top:16px">By status</h2><div id="statuses"></div>
+  </div>
+  <div class="card full">
+    <h2>Recent requests (request log)</h2>
+    <table><thead><tr><th>time</th><th>request id</th><th>method</th><th>path</th><th>status</th><th>latency ms</th></tr></thead>
+      <tbody id="recent"></tbody></table>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const fmtTime = (t) => new Date(t * 1000).toLocaleTimeString();
+
+function bars(el, obj, color) {
+  const entries = Object.entries(obj).sort((a, b) => b[1] - a[1]);
+  const max = Math.max(1, ...entries.map(e => e[1]));
+  el.innerHTML = entries.map(([k, v]) =>
+    `<div class="bar-row"><span>${k}</span><div class="track"><div class="fill" style="width:${100 * v / max}%;background:${color(k)}"></div></div><span class="n">${v}</span></div>`
+  ).join("") || '<div class="sub">no traffic yet</div>';
+}
+
+function timeline(series) {
+  const svg = $("chart"), W = 800, H = 200, pad = 22;
+  const max = Math.max(1, ...series.map(s => s.requests));
+  const bw = (W - pad) / series.length;
+  let out = "";
+  for (let i = 0; i <= 4; i++) {
+    const y = H - pad - (H - 2 * pad) * i / 4;
+    out += `<line x1="${pad}" x2="${W}" y1="${y}" y2="${y}" stroke="#eef0f4"/>`;
+    out += `<text x="0" y="${y + 4}" font-size="10" fill="#6b7385">${Math.round(max * i / 4)}</text>`;
+  }
+  series.forEach((s, i) => {
+    const x = pad + i * bw + 1, okH = (H - 2 * pad) * (s.requests - s.errors) / max,
+          errH = (H - 2 * pad) * s.errors / max;
+    out += `<rect x="${x}" width="${bw - 2}" y="${H - pad - okH}" height="${okH}" fill="#2e7d9a" rx="2"><title>${fmtTime(s.t)}: ${s.requests} req</title></rect>`;
+    if (s.errors) out += `<rect x="${x}" width="${bw - 2}" y="${H - pad - okH - errH}" height="${errH}" fill="#d1495b" rx="2"/>`;
+  });
+  out += `<text x="${pad}" y="${H - 4}" font-size="10" fill="#6b7385">${fmtTime(series[0].t)}</text>`;
+  out += `<text x="${W - 60}" y="${H - 4}" font-size="10" fill="#6b7385">now</text>`;
+  svg.innerHTML = out;
+}
+
+async function refresh() {
+  try {
+    const s = await (await fetch("stats")).json();
+    $("status").className = "pill" + (s.model_loaded ? "" : " bad");
+    $("status").innerHTML = `<span class="dot"></span>${s.model_loaded ? "model ready" : "model not loaded"}`;
+    $("meta").textContent = `model v${s.model_version} · ${s.algorithm} · uptime ${Math.round(s.uptime_s)} s · refreshed ${new Date().toLocaleTimeString()}`;
+    $("t-req").textContent = s.requests;
+    $("t-err").textContent = (100 * s.error_rate).toFixed(1) + "%";
+    $("t-p50").textContent = s.latency_ms.p50.toFixed(1);
+    $("t-p95").textContent = s.latency_ms.p95.toFixed(1);
+    $("t-pred").textContent = s.predictions;
+    $("t-pos").textContent = s.positive_share == null ? "–" : `${(100 * s.positive_share).toFixed(0)}% predicted positive`;
+    $("t-prob").textContent = s.mean_probability == null ? "–" : s.mean_probability.toFixed(2);
+    timeline(s.series);
+    bars($("paths"), s.by_path, () => "#2e7d9a");
+    bars($("statuses"), s.by_status, (k) => k.startsWith("2") ? "#2f9e6f" : k.startsWith("4") ? "#d99a21" : "#d1495b");
+    $("recent").innerHTML = s.recent.map(r =>
+      `<tr><td>${fmtTime(r.ts)}</td><td><code>${r.request_id}</code></td><td>${r.method}</td><td>${r.path}</td>` +
+      `<td class="s${String(r.status)[0]}">${r.status}</td><td class="num">${r.latency_ms}</td></tr>`).join("");
+  } catch (e) {
+    $("status").className = "pill bad";
+    $("status").innerHTML = '<span class="dot"></span>API unreachable';
+  }
+}
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>
