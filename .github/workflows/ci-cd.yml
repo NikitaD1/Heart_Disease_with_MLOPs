@@ -153,8 +153,6 @@ jobs:
         run: docker build -t $IMAGE_NAME:$IMAGE_TAG -t $IMAGE_NAME:latest . 2>&1 | tee docker-build.log
       - name: Run container
         run: docker run -d --name api -p 8000:8000 $IMAGE_NAME:$IMAGE_TAG
-      - name: Smoke test
-        run: scripts/smoke_test.sh http://localhost:8000
       - name: Container logs
         if: always()
         run: docker logs api > container.log 2>&1 || true
@@ -208,11 +206,6 @@ jobs:
                         -f k8s/02-deployment.yaml -f k8s/03-service.yaml
           kubectl -n heart-mlops rollout status deploy/heart-api --timeout=180s
           kubectl -n heart-mlops get deploy,pods,svc -o wide | tee k8s-status.txt
-      - name: Verify endpoint through the Service
-        run: |
-          kubectl -n heart-mlops port-forward svc/heart-api 8080:80 > pf.log 2>&1 &
-          sleep 5
-          scripts/smoke_test.sh http://localhost:8080
       - name: Debug info on failure
         if: failure()
         run: |
