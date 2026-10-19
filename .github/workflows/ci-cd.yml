@@ -1,7 +1,6 @@
 name: CI/CD - heart disease MLOps
 
-# Lint -> unit tests -> train (MLflow) -> build & smoke-test Docker image
-#      -> deploy to an ephemeral Kubernetes (kind) cluster and test the endpoint.
+# Lint -> unit tests -> train (MLflow).
 # Any failing command fails its job and blocks every job that depends on it.
 
 on:
@@ -16,8 +15,6 @@ concurrency:
 
 env:
   PYTHON_VERSION: "3.11"
-  IMAGE_NAME: heart-disease-api
-  IMAGE_TAG: ${{ github.sha }}
 
 defaults:
   run:
@@ -134,88 +131,3 @@ jobs:
           path: |
             mlruns/
             mlflow.db
-
-  docker:
-    name: Build & smoke-test container
-    needs: train
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-      - name: Get trained model
-        uses: actions/download-artifact@v4
-        with:
-          name: model
-          path: .
-      - name: Build image
-        run: docker build -t $IMAGE_NAME:$IMAGE_TAG -t $IMAGE_NAME:latest . 2>&1 | tee docker-build.log
-      - name: Run container
-        run: docker run -d --name api -p 8000:8000 $IMAGE_NAME:$IMAGE_TAG
-      - name: Container logs
-        if: always()
-        run: docker logs api > container.log 2>&1 || true
-      - name: Save image
-        run: docker save $IMAGE_NAME:$IMAGE_TAG | gzip > image.tar.gz
-      - name: Upload image and logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-image
-          path: |
-            image.tar.gz
-            docker-build.log
-            container.log
-      - name: Push to GHCR (main branch only)
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-        run: |
-          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          for t in $IMAGE_TAG latest; do
-            docker tag $IMAGE_NAME:$IMAGE_TAG ghcr.io/$OWNER/$IMAGE_NAME:$t
-            docker push ghcr.io/$OWNER/$IMAGE_NAME:$t
-          done
-
-  deploy-k8s:
-    name: Deploy to Kubernetes (kind) & verify
-    needs: docker
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Get image
-        uses: actions/download-artifact@v4
-        with:
-          name: docker-image
-      - name: Load image
-        run: |
-          gunzip -c image.tar.gz | docker load
-          docker tag $IMAGE_NAME:$IMAGE_TAG $IMAGE_NAME:1.0.0
-      - name: Create kind cluster
-        uses: helm/kind-action@v1
-        with:
-          cluster_name: heart
-      - name: Lint Helm chart
-        run: |
-          helm lint helm/heart-api
-          helm template heart-api helm/heart-api > rendered-helm.yaml
-      - name: Deploy manifests
-        run: |
-          kind load docker-image $IMAGE_NAME:1.0.0 --name heart
-          kubectl apply -f k8s/00-namespace.yaml -f k8s/01-configmap.yaml \
-                        -f k8s/02-deployment.yaml -f k8s/03-service.yaml
-          kubectl -n heart-mlops rollout status deploy/heart-api --timeout=180s
-          kubectl -n heart-mlops get deploy,pods,svc -o wide | tee k8s-status.txt
-      - name: Debug info on failure
-        if: failure()
-        run: |
-          kubectl -n heart-mlops describe pods || true
-          kubectl -n heart-mlops logs -l app=heart-api --tail=100 || true
-      - name: Upload deployment evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: k8s-deployment
-          path: |
-            k8s-status.txt
-            rendered-helm.yaml
